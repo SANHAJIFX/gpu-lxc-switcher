@@ -26,5 +26,4 @@ done
 echo "[DONE] All tools installed."
 echo "You can now run: gpu-menu"
 
-# Optional cleanup
 rm -rf "$TMP_DIR"
