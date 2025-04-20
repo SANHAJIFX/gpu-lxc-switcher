@@ -1,0 +1,50 @@
+#!/bin/bash
+
+set -e
+
+DRIVER_URL="https://us.download.nvidia.com/XFree86/Linux-x86_64/570.133.07/NVIDIA-Linux-x86_64-570.133.07.run"
+DRIVER_FILE="/tmp/$(basename "$DRIVER_URL")"
+
+while true; do
+  CHOICE=$(dialog --clear --title "💡 NVIDIA Driver Tools" --menu \
+    "What would you like to do?\nDriver version: 570.133.07\nLocation: $DRIVER_FILE" 15 65 5 \
+    1 "Show current GPU status (host)" \
+    2 "Download driver installer to /tmp" \
+    3 "Download + run installer interactively" \
+    4 "Return to container menu" \
+    3>&1 1>&2 2>&3)
+
+  clear
+
+  case "$CHOICE" in
+    1)
+      if command -v nvidia-smi &>/dev/null; then
+        GPU_INFO=$(nvidia-smi --query-gpu=name,driver_version,memory.total,memory.used,memory.free,utilization.gpu --format=csv,noheader,nounits | awk -F',' '
+        {
+          printf "GPU Model      : %s\nDriver Version : %s\nTotal Memory   : %s MiB\nUsed Memory    : %s MiB\nFree Memory    : %s MiB\nGPU Utilization: %s%%\n", $1, $2, $3, $4, $5, $6
+        }')
+      else
+        GPU_INFO="nvidia-smi not available. Driver not installed."
+      fi
+      dialog --title "Host GPU Info" --msgbox "$GPU_INFO" 14 60
+      ;;
+    2)
+      echo "[INFO] Downloading driver..."
+      wget -q --show-progress -O "$DRIVER_FILE" "$DRIVER_URL"
+      chmod +x "$DRIVER_FILE"
+      dialog --msgbox "Driver downloaded to:\n$DRIVER_FILE\n\nYou can run it manually:\nbash $DRIVER_FILE" 10 60
+      ;;
+    3)
+      echo "[INFO] Downloading and launching driver installer..."
+      wget -q --show-progress -O "$DRIVER_FILE" "$DRIVER_URL"
+      chmod +x "$DRIVER_FILE"
+      clear
+      echo "[INFO] Launching NVIDIA installer..."
+      bash "$DRIVER_FILE"
+      exit 0
+      ;;
+    *)
+      break
+      ;;
+  esac
+done

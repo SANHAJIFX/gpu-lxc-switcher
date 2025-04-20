@@ -1,0 +1,105 @@
+#!/bin/bash
+
+set -e
+
+if [ -z "$1" ]; then
+  echo "Usage: gpu-switch <CTID>"
+  exit 1
+fi
+
+CTID="$1"
+CONF="/etc/pve/lxc/$CTID.conf"
+
+# Check if the container is privileged
+if grep -q "^unprivileged: 1" "$CONF"; then
+  echo "[ERROR] CTID $CTID is unprivileged. GPU passthrough won't work."
+  exit 1
+fi
+
+# If nvidia-smi is missing, offer to install
+if ! command -v nvidia-smi &>/dev/null; then
+  CHOICE=$(dialog --clear --title "Missing NVIDIA Driver" --menu \
+    "NVIDIA driver (570.133.07) not found.\nChoose what to do:" 12 60 3 \
+    1 "Download only" \
+    2 "Download and run installer" \
+    3 "Cancel" \
+    3>&1 1>&2 2>&3)
+
+  case "$CHOICE" in
+    1)
+      cd /tmp
+      wget -q --show-progress https://us.download.nvidia.com/XFree86/Linux-x86_64/570.133.07/NVIDIA-Linux-x86_64-570.133.07.run
+      chmod +x NVIDIA-Linux-x86_64-*.run
+      dialog --msgbox "Driver downloaded to /tmp.\nYou can run it manually:\n\nbash /tmp/NVIDIA-Linux-*.run" 10 60
+      exit 0
+      ;;
+    2)
+      cd /tmp
+      wget -q --show-progress https://us.download.nvidia.com/XFree86/Linux-x86_64/570.133.07/NVIDIA-Linux-x86_64-570.133.07.run
+      chmod +x NVIDIA-Linux-x86_64-*.run
+      clear
+      echo "[INFO] Launching NVIDIA driver installer interactively..."
+      bash ./NVIDIA-Linux-x86_64-*.run
+      exit 0
+      ;;
+    *)
+      echo "[ABORTED] NVIDIA driver installation skipped."
+      exit 1
+      ;;
+  esac
+fi
+
+# Show GPU info
+GPU_INFO=$(nvidia-smi --query-gpu=name,driver_version,memory.total,memory.used,memory.free,utilization.gpu --format=csv,noheader,nounits | awk -F',' '
+{
+  printf "GPU Model      : %s\nDriver Version : %s\nTotal Memory   : %s MiB\nUsed Memory    : %s MiB\nFree Memory    : %s MiB\nGPU Utilization: %s%%\n", $1, $2, $3, $4, $5, $6
+}')
+dialog --title "Detected GPU Info (Host)" --msgbox "$GPU_INFO" 14 60
+
+# Devices and libraries
+DEVICES=(
+  "/dev/nvidia0"
+  "/dev/nvidiactl"
+  "/dev/nvidia-uvm"
+  "/dev/nvidia-uvm-tools"
+)
+LIBS=(
+  "/usr/bin/nvidia-smi"
+  "/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1"
+  "/usr/lib/x86_64-linux-gnu/libcuda.so.1"
+)
+
+echo "[INFO] Releasing GPU from all LXC containers..."
+for f in /etc/pve/lxc/*.conf; do
+  id=$(basename "$f" .conf)
+  pct stop "$id" >/dev/null 2>&1 || true
+  sed -i '\|/dev/nvidia|d' "$f"
+  sed -i '\|/usr/bin/nvidia-smi|d' "$f"
+  sed -i '\|/libnvidia|d' "$f"
+  sed -i '\|lxc.cgroup2.devices.allow: c 195:|d' "$f"
+done
+
+echo "[INFO] Assigning GPU to CTID: $CTID"
+
+for dev in "${DEVICES[@]}"; do
+  echo "lxc.mount.entry: $dev $dev none bind,optional,create=file" >> "$CONF"
+done
+
+for lib in "${LIBS[@]}"; do
+  echo "lxc.mount.entry: $lib $lib none bind,ro,optional,create=file" >> "$CONF"
+done
+
+echo "lxc.cgroup2.devices.allow: c 195:* rwm" >> "$CONF"
+
+echo "[INFO] Starting container $CTID..."
+pct start "$CTID"
+
+sleep 3
+
+echo "[INFO] Validating GPU access..."
+pct exec "$CTID" -- /usr/bin/nvidia-smi || {
+  echo "[ERROR] GPU access failed in CTID $CTID"
+  exit 1
+}
+
+echo "[SUCCESS] GPU successfully assigned and validated for CTID $CTID"

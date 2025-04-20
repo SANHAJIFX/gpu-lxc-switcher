@@ -1,0 +1,91 @@
+#!/bin/bash
+
+set -e
+
+# Step 1: Get list of containers
+CT_LIST=$(pct list | awk 'NR>1 {print $1}')
+
+declare -a MENU_OPTIONS=()
+
+for CTID in $CT_LIST; do
+  CONF="/etc/pve/lxc/$CTID.conf"
+  NAME=$(grep -i hostname "$CONF" | awk '{print $2}')
+  NAME=${NAME:-"CT_$CTID"}
+  MENU_OPTIONS+=("$CTID" "$NAME")
+done
+
+# Step 2: Let user select container
+CTID=$(dialog --clear --title "Fix GPU Access in Container" \
+  --menu "Select a container to diagnose GPU access:" 15 60 8 \
+  "${MENU_OPTIONS[@]}" \
+  3>&1 1>&2 2>&3)
+
+clear
+
+if [ -z "$CTID" ]; then
+  echo "[ABORTED] No container selected."
+  exit 1
+fi
+
+CONF="/etc/pve/lxc/$CTID.conf"
+
+# Step 3: Check GPU inside CT
+echo "[INFO] Checking GPU access in CT $CTID..."
+if pct exec "$CTID" -- /usr/bin/nvidia-smi &>/dev/null; then
+  dialog --msgbox "✅ GPU access appears to be working in CT $CTID (nvidia-smi runs successfully)." 8 60
+  exit 0
+else
+  dialog --msgbox "❌ GPU access is broken or incomplete in CT $CTID.\nWe'll now attempt to fix it." 8 60
+fi
+
+# Step 4: Offer fix
+dialog --yesno "Do you want to fix GPU access in CT $CTID by remounting NVIDIA devices and libraries?" 8 60
+if [ $? -ne 0 ]; then
+  echo "[ABORTED] User chose not to proceed."
+  exit 1
+fi
+
+# Step 5: Stop CT
+echo "[INFO] Stopping CT $CTID..."
+pct stop "$CTID" >/dev/null 2>&1 || true
+
+# Step 6: Remove old NVIDIA entries
+sed -i '\|/dev/nvidia|d' "$CONF"
+sed -i '\|/usr/bin/nvidia-smi|d' "$CONF"
+sed -i '\|/libnvidia|d' "$CONF"
+sed -i '\|lxc.cgroup2.devices.allow: c 195:|d' "$CONF"
+
+# Step 7: Rebind files
+DEVICES=(
+  "/dev/nvidia0"
+  "/dev/nvidiactl"
+  "/dev/nvidia-uvm"
+  "/dev/nvidia-uvm-tools"
+)
+LIBS=(
+  "/usr/bin/nvidia-smi"
+  "/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1"
+  "/usr/lib/x86_64-linux-gnu/libcuda.so.1"
+)
+
+for dev in "${DEVICES[@]}"; do
+  echo "lxc.mount.entry: $dev $dev none bind,optional,create=file" >> "$CONF"
+done
+
+for lib in "${LIBS[@]}"; do
+  echo "lxc.mount.entry: $lib $lib none bind,ro,optional,create=file" >> "$CONF"
+done
+
+echo "lxc.cgroup2.devices.allow: c 195:* rwm" >> "$CONF"
+
+# Step 8: Restart CT
+echo "[INFO] Restarting CT $CTID..."
+pct start "$CTID"
+sleep 2
+
+# Step 9: Verify again
+if pct exec "$CTID" -- /usr/bin/nvidia-smi &>/dev/null; then
+  dialog --msgbox "✅ GPU access has been restored successfully in CT $CTID." 8 60
+else
+  dialog --msgbox "⚠️ Attempted fix applied, but GPU is still not accessible in CT $CTID." 8 60
+fi

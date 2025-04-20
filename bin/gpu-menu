@@ -1,0 +1,85 @@
+#!/bin/bash
+
+set -e
+
+# Get GPU Info for header
+if command -v nvidia-smi &>/dev/null; then
+  GPU_HEADER=$(nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader,nounits | awk -F',' '
+    {
+      printf "GPU: %s  |  Driver: %s  |  VRAM: %s MiB", $1, $2, $3
+    }')
+else
+  GPU_HEADER="⚠️ NVIDIA driver not found on host"
+fi
+
+# Get all container IDs
+CT_LIST=$(pct list | awk 'NR>1 {print $1}')
+
+# Prepare the dialog menu list
+declare -a MENU_OPTIONS=()
+
+# Add driver management tool option
+MENU_OPTIONS+=("D" "💡 Manage NVIDIA Driver (View/Install)")
+MENU_OPTIONS+=("F" "🔧 Fix GPU Access in a Container")
+
+
+
+for CTID in $CT_LIST; do
+  CONF="/etc/pve/lxc/$CTID.conf"
+
+  if grep -q "^unprivileged:" "$CONF"; then
+    PRIV=$(grep "^unprivileged:" "$CONF" | awk '{print $2}')
+  else
+    PRIV="0"
+  fi
+
+  HOSTNAME=$(grep -i "^hostname:" "$CONF" | awk '{print $2}')
+  NAME=${HOSTNAME:-"NoName"}
+
+  if [[ "$PRIV" == "0" ]]; then
+    LABEL="(Privileged)"
+  else
+    LABEL="(Unprivileged)"
+  fi
+
+  MENU_OPTIONS+=("$CTID" "$NAME $LABEL")
+done
+
+# If nothing to show
+if [[ ${#MENU_OPTIONS[@]} -eq 0 ]]; then
+  echo "[ERROR] No LXC containers found."
+  exit 1
+fi
+
+while true; do
+  CHOICE=$(dialog --clear \
+    --backtitle "GPU Switcher" \
+    --title "Select a Container or Manage Driver" \
+    --menu "$GPU_HEADER\n\nChoose an option:" 20 70 15 \
+    "${MENU_OPTIONS[@]}" \
+    3>&1 1>&2 2>&3)
+
+  clear
+
+  if [[ -z "$CHOICE" ]]; then
+    echo "[ABORTED] No container selected."
+    exit 1
+  fi
+
+
+if [[ "$CHOICE" == "D" ]]; then
+  /usr/local/bin/gpu-driver-tools
+  continue
+fi
+
+if [[ "$CHOICE" == "F" ]]; then
+  /usr/local/bin/gpu-fix-ct
+  continue
+fi
+
+
+
+
+  echo "[INFO] Selected container: $CHOICE"
+  exec /usr/local/bin/gpu-switch "$CHOICE"
+done
