@@ -2,6 +2,10 @@
 
 GPU passthrough automation tools for Proxmox LXC containers.
 
+
+![GPU_LXC_SWITCHER](https://github.com/user-attachments/assets/d8ba4af1-ffbb-49a6-a3fe-7394d9ea018a)
+
+
 ## 📦 Tools Included
 
 - `gpu-menu`: Select a privileged LXC container to assign the GPU using a dialog menu.
