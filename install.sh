@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+# Install required packages
+echo "[INFO] Checking and installing required packages..."
+apt update
+apt install -y dialog
+
+# Variables
 REPO_URL="https://github.com/SANHAJIFX/gpu-lxc-switcher"
 TMP_DIR="/tmp/gpu-lxc-switcher"
 
