@@ -27,4 +27,4 @@ GPU passthrough automation tools for Proxmox LXC containers.
 Run this from your Proxmox host:
 
 ```bash
-bash <(curl -sSL https://raw.githubusercontent.com/YOUR_USERNAME/gpu-lxc-switcher/main/install.sh)
+bash <(curl -sSL https://raw.githubusercontent.com/YOUR_GIT_USERNAME/gpu-lxc-switcher/main/install.sh)
