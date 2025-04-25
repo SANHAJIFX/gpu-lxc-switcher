@@ -18,7 +18,7 @@ GPU passthrough automation tools for Proxmox LXC containers.
 - Works with Proxmox VE 8+
 - Compatible with NVIDIA RTX cards
 - Supports `nvidia-smi`, `nvtop`, `libcuda.so.1`, `libnvidia-ml.so.1`
-- Detects privileged containers only
+- Detects both privileged & unprivileged containers but can affect only privileged ones (so ensure enabling it)
 - Validates GPU passthrough success
 - Easy to maintain and extend
 
