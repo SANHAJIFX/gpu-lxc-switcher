@@ -28,10 +28,3 @@ Run this from your Proxmox host:
 
 ```bash
 bash <(curl -sSL https://raw.githubusercontent.com/YOUR_USERNAME/gpu-lxc-switcher/main/install.sh)
-
-
-
-and install catalog pack:
-
-  apt update
-  apt install dialog -y
